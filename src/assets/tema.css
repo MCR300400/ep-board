@@ -1,0 +1,85 @@
+/* ==========================================================================
+   Design System: Tema Dark & Light con Accento Arancione Artigianale
+   Condiviso con l'ecosistema ep-portfolio.
+   ========================================================================== */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Superfici e Sfondi (Grafite minerale caldo) */
+  --bg-primario: #121316;
+  --bg-superficie: #191a20;
+  --bg-superficie-elevata: #22242c;
+  --bg-superficie-hover: #292b35;
+  --header-bg: rgba(18, 19, 22, 0.85);
+
+  /* Tipografia */
+  --testo-primario: #f4f4f5;
+  --testo-secondario: #a1a1aa;
+  --testo-terziario: #71717a;
+  --testo-invertito: #121316;
+
+  /* Linee e Bordi strutturali */
+  --bordo-sottile: rgba(255, 255, 255, 0.08);
+  --bordo-medio: rgba(255, 255, 255, 0.14);
+  --bordo-forte: rgba(255, 255, 255, 0.22);
+
+  /* Accento Arancione Caldo & Energico */
+  --accento: #f97316;
+  --accento-hover: #fb923c;
+  --accento-attivo: #ea580c;
+  --accento-sfondo: rgba(249, 115, 22, 0.12);
+  --accento-sfondo-hover: rgba(249, 115, 22, 0.18);
+  --accento-bordo: rgba(249, 115, 22, 0.32);
+  --accento-testo: #fdba74;
+  --accento-contrasto: #ffffff;
+
+  /* Ombre materiche */
+  --ombra-scheda: 0 4px 18px -2px rgba(0, 0, 0, 0.45);
+  --ombra-scheda-hover: 0 12px 28px -4px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(249, 115, 22, 0.28);
+
+  /* Griglia Lavagna */
+  --griglia-dot: rgba(255, 255, 255, 0.08);
+  --canvas-bg: #121316;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Superfici e Sfondi (Carta calda / Pietra chiara) */
+  --bg-primario: #fbfaf8;
+  --bg-superficie: #ffffff;
+  --bg-superficie-elevata: #f3f1ec;
+  --bg-superficie-hover: #eae7df;
+  --header-bg: rgba(251, 250, 248, 0.88);
+
+  /* Tipografia ad alto contrasto */
+  --testo-primario: #1a1917;
+  --testo-secondario: #57534e;
+  --testo-terziario: #78716c;
+  --testo-invertito: #ffffff;
+
+  /* Linee e Bordi */
+  --bordo-sottile: rgba(0, 0, 0, 0.08);
+  --bordo-medio: rgba(0, 0, 0, 0.14);
+  --bordo-forte: rgba(0, 0, 0, 0.22);
+
+  /* Accento Terracotta / Arancione ambrato (WCAG AA > 4.5:1) */
+  --accento: #ea580c;
+  --accento-hover: #c2410c;
+  --accento-attivo: #9a3412;
+  --accento-sfondo: rgba(234, 88, 12, 0.08);
+  --accento-sfondo-hover: rgba(234, 88, 12, 0.14);
+  --accento-bordo: rgba(234, 88, 12, 0.26);
+  --accento-testo: #c2410c;
+  --accento-contrasto: #ffffff;
+
+  /* Ombre delicate */
+  --ombra-scheda: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --ombra-scheda-hover: 0 12px 24px -4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(234, 88, 12, 0.28);
+
+  /* Griglia Lavagna */
+  --griglia-dot: rgba(0, 0, 0, 0.08);
+  --canvas-bg: #fbfaf8;
+}

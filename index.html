@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>ep-board — Lavagna & Diagrammi Collaborativi Multiplayer</title>
+    <meta name="description" content="Lavagna collaborativa in tempo reale per disegnare architetture software, diagrammi e schemi a mano libera con cursori multiplayer e WebSockets." />
+    <script>
+      (function () {
+        try {
+          var salvato = localStorage.getItem('ep_tema');
+          var tema = (salvato === 'light' || salvato === 'dark') ? salvato : 'dark';
+          document.documentElement.setAttribute('data-theme', tema);
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
