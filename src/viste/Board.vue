@@ -23,6 +23,13 @@ const wsConnesso = ref(false)
 const peers = reactive(new Map()) // peerId -> { id, name, color, cursor: { x, y } }
 const lastCursorSend = ref(0)
 const linkCopiato = ref(false)
+const boardInesistente = ref(false)
+const verificaInCorso = ref(true)
+const pannelloPropAperto = ref(typeof window !== 'undefined' ? window.innerWidth >= 900 : true)
+
+function togglePannelloProp() {
+  pannelloPropAperto.value = !pannelloPropAperto.value
+}
 
 // Canvas Pan & Zoom
 const pan = reactive({ x: 0, y: 0 })
@@ -193,10 +200,14 @@ function connettiWebSocket() {
       } catch (err) {}
     }
 
-    ws.value.onclose = () => {
+    ws.value.onclose = (event) => {
       wsConnesso.value = false
+      if (event && (event.code === 4404 || event.code === 4004 || boardInesistente.value)) {
+        boardInesistente.value = true
+        return
+      }
       setTimeout(() => {
-        if (route.name === 'Board') connettiWebSocket()
+        if (route.name === 'Board' && !boardInesistente.value) connettiWebSocket()
       }, 3000)
     }
 
@@ -210,6 +221,13 @@ function connettiWebSocket() {
 
 function gestisciMessaggioWS(msg) {
   const senderId = msg._sender
+
+  if (msg.type === 'room-not-found') {
+    boardInesistente.value = true
+    wsConnesso.value = false
+    if (ws.value) ws.value.close(4404)
+    return
+  }
 
   if (msg.type === 'user-joined') {
     // Un nuovo peer si è unito: registralo
@@ -807,7 +825,43 @@ function gestisciKeyUp(e) {
   }
 }
 
-onMounted(() => {
+async function creaNuovaLavagna() {
+  const prefissi = ['arch', 'sys', 'cloud', 'flow', 'db', 'api', 'core', 'mesh']
+  const p = prefissi[Math.floor(Math.random() * prefissi.length)]
+  const num = Math.floor(Math.random() * 899) + 100
+  const newId = `${p}-${num}`
+  const base = import.meta.env.VITE_WS_URL || 'wss://ep-ws.edoardopippi00.workers.dev'
+  const apiBase = base.replace(/^ws(s)?:/, 'http$1:')
+  try {
+    await fetch(`${apiBase}/api/rooms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app: 'board', room: newId })
+    })
+  } catch (err) {
+    console.error('Errore creazione lavagna:', err)
+  }
+  window.location.href = `/board/${newId}`
+}
+
+onMounted(async () => {
+  const base = import.meta.env.VITE_WS_URL || 'wss://ep-ws.edoardopippi00.workers.dev'
+  const apiBase = base.replace(/^ws(s)?:/, 'http$1:')
+  try {
+    const res = await fetch(`${apiBase}/api/rooms/check?app=board&room=${encodeURIComponent(roomId.value)}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (!data.exists) {
+        boardInesistente.value = true
+        wsConnesso.value = false
+        verificaInCorso.value = false
+        return
+      }
+    }
+  } catch (e) {
+    console.warn('Verifica stanza offline:', e)
+  }
+  verificaInCorso.value = false
   connettiWebSocket()
   window.addEventListener('keydown', gestisciKeyDown)
   window.addEventListener('keyup', gestisciKeyUp)
@@ -822,14 +876,36 @@ onUnmounted(() => {
 
 <template>
   <div class="schermata-board" :class="{ 'modalita-spazio': spacePremuto || strumentoAttivo === 'pan' }">
-    <!-- Top Bar Integrata della Lavagna -->
-    <header class="topbar-board">
-      <div class="topbar-sinistra">
-        <button type="button" class="btn-torna-home" title="Torna alla Home" @click="router.push('/')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </button>
+    <!-- Schermata Lavagna Inesistente -->
+    <div v-if="boardInesistente" class="card-errore-board">
+      <div class="box-errore-centrato">
+        <div class="icona-avviso">⚠️</div>
+        <h2 class="titolo-avviso">Lavagna non trovata</h2>
+        <p class="desc-avviso">
+          La lavagna <code>{{ roomId }}</code> non esiste o non è mai stata creata.<br />
+          Non è consentito creare una lavagna inserendo un codice casuale nel campo di accesso.
+        </p>
+        <div class="bottoni-avviso">
+          <button type="button" class="btn-secondario-avviso" @click="router.push('/')">
+            Torna alla Home
+          </button>
+          <button type="button" class="btn-primario-avviso" @click="creaNuovaLavagna">
+            Crea Nuova Lavagna
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Contenuto Lavagna Normale -->
+    <template v-else>
+      <!-- Top Bar Integrata della Lavagna -->
+      <header class="topbar-board">
+        <div class="topbar-sinistra">
+          <button type="button" class="btn-torna-home" title="Torna alla Home" @click="router.push('/')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
 
         <div class="logo-board-badge">
           <span class="logo-ico">
@@ -1064,6 +1140,24 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Toggle Pannello Stile / Proprietà -->
+        <button
+          type="button"
+          class="btn-topbar-azione btn-toggle-stile"
+          :class="{ attivo: pannelloPropAperto }"
+          :title="pannelloPropAperto ? 'Nascondi opzioni stile' : 'Mostra opzioni stile e colori'"
+          @click="togglePannelloProp"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle>
+            <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle>
+            <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle>
+            <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle>
+            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path>
+          </svg>
+          <span class="etichetta-btn">Stile</span>
+        </button>
+
         <!-- Toggle Tema -->
         <button
           type="button"
@@ -1082,8 +1176,14 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <!-- Toolbar Proprietà Flottante a Sinistra (Palette Colori & Spessore) -->
-    <aside class="pannello-proprieta">
+    <!-- Toolbar Proprietà (Palette Colori & Spessore) -->
+    <aside v-show="pannelloPropAperto" class="pannello-proprieta">
+      <div class="testata-prop">
+        <span class="titolo-pannello-prop">Opzioni Stile</span>
+        <button type="button" class="btn-chiudi-prop" title="Chiudi pannello stile" @click="pannelloPropAperto = false">
+          ✕
+        </button>
+      </div>
       <div class="sezione-prop">
         <span class="label-prop">Colore</span>
         <div class="griglia-colori">
@@ -1462,6 +1562,7 @@ onUnmounted(() => {
         <button type="button" class="btn-zoom" title="Aumenta Zoom" @click="zoomIn">+</button>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -2118,12 +2219,266 @@ onUnmounted(() => {
   transition: transform 0.04s linear;
 }
 
-@media (max-width: 820px) {
-  .pannello-proprieta {
+/* Toggle Pannello Stile e Testata Proprietà */
+.btn-toggle-stile.attivo {
+  background: var(--accento-sfondo);
+  border-color: var(--accento);
+  color: var(--accento);
+}
+
+.testata-prop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--bordo-sottile);
+}
+
+.titolo-pannello-prop {
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  color: var(--testo-terziario);
+  letter-spacing: 0.04em;
+}
+
+.btn-chiudi-prop {
+  background: transparent;
+  border: none;
+  color: var(--testo-terziario);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.btn-chiudi-prop:hover {
+  color: var(--testo-primario);
+  background: var(--bg-superficie-elevata);
+}
+
+/* Card Errore Lavagna Inesistente */
+.card-errore-board {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100vw;
+  padding: 2rem 1rem;
+  background-color: var(--bg-primario);
+}
+
+.box-errore-centrato {
+  background: var(--bg-superficie);
+  border: 1px solid var(--bordo-medio);
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--ombra-scheda);
+}
+
+.icona-avviso {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.titolo-avviso {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--testo-primario);
+  margin-bottom: 0.75rem;
+}
+
+.desc-avviso {
+  font-size: 0.95rem;
+  color: var(--testo-secondario);
+  line-height: 1.6;
+  margin-bottom: 2rem;
+}
+
+.desc-avviso code {
+  font-family: ui-monospace, monospace;
+  background: var(--bg-superficie-elevata);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  color: var(--accento);
+  font-weight: 700;
+}
+
+.bottoni-avviso {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn-secondario-avviso {
+  background: var(--bg-superficie-elevata);
+  border: 1px solid var(--bordo-medio);
+  color: var(--testo-primario);
+  padding: 0.75rem 1.4rem;
+  border-radius: 8px;
+  font-weight: 650;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-secondario-avviso:hover {
+  border-color: var(--accento-bordo);
+  color: var(--accento);
+}
+
+.btn-primario-avviso {
+  background: var(--accento);
+  border: none;
+  color: #fff;
+  padding: 0.75rem 1.4rem;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-primario-avviso:hover {
+  background: var(--accento-hover);
+}
+
+/* Responsività Whiteboard per schermi medi e piccoli (Tablet e Mobile) */
+@media (max-width: 900px) {
+  .topbar-board {
+    height: 3.25rem;
+    padding: 0 0.5rem;
+    gap: 0.35rem;
+  }
+
+  .logo-testo {
     display: none;
   }
+
   .nome-arch-compatto {
     display: none;
+  }
+
+  .btn-topbar-azione .etichetta-btn {
+    display: none;
+  }
+
+  .btn-topbar-azione {
+    padding: 0 0.55rem;
+    height: 2rem;
+  }
+
+  .btn-torna-home {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .badge-codice-stanza {
+    padding: 0.18rem 0.4rem;
+    font-size: 0.72rem;
+  }
+
+  .pillola-presenza {
+    padding: 0.2rem 0.45rem;
+  }
+
+  .pillola-presenza .testo-presenza {
+    font-size: 0.72rem;
+  }
+
+  /* Dock Strumenti Flottante in Basso al Centro per Mobile */
+  .dock-strumenti {
+    position: fixed;
+    bottom: 0.85rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 40;
+    width: auto;
+    max-width: calc(100vw - 1rem);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 0.3rem 0.45rem;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    background: var(--bg-superficie);
+    border: 1px solid var(--bordo-medio);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .dock-strumenti::-webkit-scrollbar {
+    display: none;
+  }
+
+  .btn-tool {
+    flex-shrink: 0;
+    min-width: 2.2rem;
+  }
+
+  /* Pannello Stile Flottante sopra i comandi su Mobile */
+  .pannello-proprieta {
+    position: fixed;
+    top: auto;
+    bottom: 4.6rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(340px, calc(100vw - 1.5rem));
+    z-index: 45;
+    background: var(--bg-superficie);
+    border: 1px solid var(--bordo-medio);
+    border-radius: 14px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .dock-zoom {
+    bottom: 4.6rem;
+    right: 0.75rem;
+    left: auto;
+    z-index: 35;
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar-board {
+    padding: 0 0.35rem;
+  }
+
+  .badge-codice-stanza {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .topbar-destra {
+    gap: 0.3rem;
+  }
+
+  .gruppo-undo-redo .btn-icona-top {
+    width: 1.85rem;
+    height: 1.85rem;
+  }
+
+  .btn-topbar-azione {
+    padding: 0 0.4rem;
+    height: 1.85rem;
+  }
+
+  .btn-icona-top {
+    width: 1.85rem;
+    height: 1.85rem;
   }
 }
 </style>

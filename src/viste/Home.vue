@@ -6,6 +6,11 @@ import Contatore from '../components/Contatore.vue'
 const router = useRouter()
 const idLavagnaInput = ref('')
 const erroreInput = ref('')
+const staCreando = ref(false)
+const staVerificando = ref(false)
+
+const WS_BASE = import.meta.env.VITE_WS_URL || 'wss://ep-ws.edoardopippi00.workers.dev'
+const API_BASE = WS_BASE.replace(/^ws(s)?:/, 'http$1:')
 
 function generaIdLavagna() {
   const prefissi = ['arch', 'sys', 'cloud', 'flow', 'db', 'api', 'core', 'mesh']
@@ -14,19 +19,50 @@ function generaIdLavagna() {
   return `${p}-${num}`
 }
 
-function creaNuovaLavagna() {
+async function creaNuovaLavagna() {
+  if (staCreando.value) return
+  staCreando.value = true
   const id = generaIdLavagna()
-  router.push(`/board/${id}`)
+  try {
+    await fetch(`${API_BASE}/api/rooms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app: 'board', room: id })
+    })
+  } catch (err) {
+    console.error('Errore creazione lavagna:', err)
+  } finally {
+    staCreando.value = false
+    router.push(`/board/${id}`)
+  }
 }
 
-function entraInLavagna() {
+async function entraInLavagna() {
   const pulito = idLavagnaInput.value.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '')
   if (!pulito || pulito.length < 2) {
     erroreInput.value = 'Inserisci un nome o ID valido per la lavagna'
     return
   }
   erroreInput.value = ''
-  router.push(`/board/${pulito}`)
+  staVerificando.value = true
+
+  try {
+    const res = await fetch(`${API_BASE}/api/rooms/check?app=board&room=${encodeURIComponent(pulito)}`)
+    if (!res.ok) {
+      erroreInput.value = 'Impossibile verificare la lavagna. Riprova.'
+      return
+    }
+    const data = await res.json()
+    if (!data.exists) {
+      erroreInput.value = 'Lavagna non trovata. Verifica l\'ID o crea una nuova lavagna.'
+      return
+    }
+    router.push(`/board/${pulito}`)
+  } catch (err) {
+    erroreInput.value = 'Errore di connessione al server.'
+  } finally {
+    staVerificando.value = false
+  }
 }
 </script>
 
@@ -53,13 +89,13 @@ function entraInLavagna() {
       <!-- Azioni Rapide Lavagna -->
       <div class="scheda-azione-board">
         <div class="blocco-crea">
-          <button type="button" class="btn-primario" @click="creaNuovaLavagna">
+          <button type="button" class="btn-primario" :disabled="staCreando" @click="creaNuovaLavagna">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
               <line x1="12" y1="8" x2="12" y2="16"></line>
               <line x1="8" y1="12" x2="16" y2="12"></line>
             </svg>
-            Crea Nuova Lavagna Live
+            {{ staCreando ? 'Creazione in corso...' : 'Crea Nuova Lavagna Live' }}
           </button>
           <span class="nota-crea">Genera un'area di lavoro infinita condivisibile</span>
         </div>
@@ -76,9 +112,10 @@ function entraInLavagna() {
               placeholder="Nome stanza (es. arch-404)"
               maxlength="32"
               class="input-board"
+              :disabled="staVerificando"
             />
-            <button type="submit" class="btn-secondario">
-              Apri
+            <button type="submit" class="btn-secondario" :disabled="staVerificando">
+              {{ staVerificando ? 'Verifica...' : 'Apri' }}
             </button>
           </div>
           <span v-if="erroreInput" class="testo-errore">{{ erroreInput }}</span>
