@@ -2,10 +2,12 @@
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTema } from '../composables/useTema'
+import { useLingua } from '../composables/useLingua'
 
 const route = useRoute()
 const router = useRouter()
 const { tema, toggleTema } = useTema()
+const { t, lingua, setLingua, toggleLingua, isItalian, isEnglish } = useLingua()
 
 const roomId = computed(() => route.params.id || 'arch-101')
 const boardTitle = ref(`Architettura ${roomId.value}`)
@@ -180,43 +182,43 @@ function schermoVersoMondo(clientX, clientY) {
 // Archetipi per blocchi di architettura
 const tipiArch = {
   client: {
-    nome: 'Client / App',
-    sub: 'Frontend / Browser',
+    nome: { it: 'Client / App', en: 'Client / App' },
+    sub: { it: 'Frontend / Browser', en: 'Frontend / Browser' },
     icona: '🌐',
     colore: '#3b82f6',
     bordo: '#60a5fa'
   },
   server: {
-    nome: 'API / Service',
-    sub: 'Backend Microservice',
+    nome: { it: 'API / Service', en: 'API / Service' },
+    sub: { it: 'Microservizio Backend', en: 'Backend Microservice' },
     icona: '⚙️',
     colore: '#10b981',
     bordo: '#34d399'
   },
   database: {
-    nome: 'Database D1',
-    sub: 'Relational SQLite',
+    nome: { it: 'Database D1', en: 'Database D1' },
+    sub: { it: 'SQLite Relazionale', en: 'Relational SQLite' },
     icona: '🗄️',
     colore: '#8b5cf6',
     bordo: '#a78bfa'
   },
   cache: {
-    nome: 'Cache KV',
-    sub: 'In-Memory / Low Latency',
+    nome: { it: 'Cache KV', en: 'Cache KV' },
+    sub: { it: 'In-Memory / Bassa Latenza', en: 'In-Memory / Low Latency' },
     icona: '⚡',
     colore: '#f59e0b',
     bordo: '#fbbf24'
   },
   queue: {
-    nome: 'Queue Eventi',
-    sub: 'Message Broker / Async',
+    nome: { it: 'Queue Eventi', en: 'Event Queue' },
+    sub: { it: 'Message Broker / Async', en: 'Message Broker / Async' },
     icona: '📬',
     colore: '#ec4899',
     bordo: '#f472b6'
   },
   cloud: {
-    nome: 'Cloudflare Worker',
-    sub: 'Global Edge Runtime',
+    nome: { it: 'Cloudflare Worker', en: 'Cloudflare Worker' },
+    sub: { it: 'Global Edge Runtime', en: 'Global Edge Runtime' },
     icona: '☁️',
     colore: '#f97316',
     bordo: '#fb923c'
@@ -546,8 +548,8 @@ function onPointerDown(e) {
       y: world.y - 50,
       w: 180,
       h: 100,
-      title: arch.nome,
-      subtitle: arch.sub,
+      title: t(arch.nome),
+      subtitle: t(arch.sub),
       icon: arch.icona,
       color: arch.colore,
       borderColor: arch.bordo
@@ -1007,17 +1009,16 @@ onUnmounted(() => {
     <div v-if="boardInesistente" class="card-errore-board">
       <div class="box-errore-centrato">
         <div class="icona-avviso">⚠️</div>
-        <h2 class="titolo-avviso">Lavagna non trovata</h2>
+        <h2 class="titolo-avviso">{{ t('board.nonTrovata') }}</h2>
         <p class="desc-avviso">
-          La lavagna <code>{{ roomId }}</code> non esiste o non è mai stata creata.<br />
-          Non è consentito creare una lavagna inserendo un codice casuale nel campo di accesso.
+          {{ t('board.descNonTrovata') }}
         </p>
         <div class="bottoni-avviso">
           <button type="button" class="btn-secondario-avviso" @click="router.push('/')">
-            Torna alla Home
+            {{ t('board.ritorno') }}
           </button>
           <button type="button" class="btn-primario-avviso" @click="creaNuovaLavagna">
-            Crea Nuova Lavagna
+            {{ t('board.creaNuova') }}
           </button>
         </div>
       </div>
@@ -1028,7 +1029,7 @@ onUnmounted(() => {
       <!-- Top Bar Integrata della Lavagna -->
       <header class="topbar-board">
         <div class="topbar-sinistra">
-          <button type="button" class="btn-torna-home" title="Torna alla Home" @click="router.push('/')">
+          <button type="button" class="btn-torna-home" :title="t('board.ritorno')" @click="router.push('/')">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
@@ -1049,7 +1050,7 @@ onUnmounted(() => {
           <button
             type="button"
             class="badge-codice-stanza"
-            :title="linkCopiato ? 'Link copiato!' : 'Clicca per copiare il link di invito'"
+            :title="linkCopiato ? t('board.linkCopiato') : t('board.copiaLink')"
             @click="copiaLinkStanza"
           >
             <span>#{{ roomId }}</span>
@@ -1059,13 +1060,13 @@ onUnmounted(() => {
 
         <!-- Centro Topbar (Undo/Redo sempre a portata di pollice su Mobile) -->
         <div class="gruppo-undo-redo centro-topbar-mobile">
-          <button type="button" class="btn-icona-top" :disabled="!storicoUndo.length" title="Annulla (Ctrl+Z)" @click="undo">
+          <button type="button" class="btn-icona-top" :disabled="!storicoUndo.length" :title="t('board.annulla') + ' (Ctrl+Z)'" @click="undo">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
               <path d="M3 7v6h6"></path>
               <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
             </svg>
           </button>
-          <button type="button" class="btn-icona-top" :disabled="!storicoRedo.length" title="Ripristina (Ctrl+Y)" @click="redo">
+          <button type="button" class="btn-icona-top" :disabled="!storicoRedo.length" :title="t('board.ripristina') + ' (Ctrl+Y)'" @click="redo">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
               <path d="M21 7v6h-6"></path>
               <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
@@ -1073,12 +1074,34 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- Top Bar Destra: Presenza, Desktop Actions, Stile, Menu Mobile -->
+        <!-- Top Bar Destra: Presenza, Selettore Lingua, Desktop Actions, Stile, Menu Mobile -->
         <div class="topbar-destra">
           <!-- Badge Partecipanti Online -->
-          <div class="pillola-presenza" :title="`${peers.size + 1} utenti connessi a questa stanza`">
+          <div class="pillola-presenza" :title="`${peers.size + 1} ${t('board.online')}`">
             <span class="dot-live" :class="{ connesso: wsConnesso }"></span>
-            <span class="testo-presenza">{{ peers.size + 1 }} <span class="nascondi-mobile">online</span></span>
+            <span class="testo-presenza">{{ peers.size + 1 }} <span class="nascondi-mobile">{{ t('board.online') }}</span></span>
+          </div>
+
+          <!-- Switcher Lingua IT/EN -->
+          <div class="selettore-lingua-top" role="group" aria-label="Selezione lingua">
+            <button
+              type="button"
+              class="btn-lingua-pill"
+              :class="{ attivo: isItalian }"
+              title="Passa a Italiano"
+              @click="setLingua('it')"
+            >
+              IT
+            </button>
+            <button
+              type="button"
+              class="btn-lingua-pill"
+              :class="{ attivo: isEnglish }"
+              title="Switch to English"
+              @click="setLingua('en')"
+            >
+              EN
+            </button>
           </div>
 
           <!-- Copia Link Invito (Desktop) -->
@@ -1086,7 +1109,7 @@ onUnmounted(() => {
             type="button"
             class="btn-topbar-azione nascondi-mobile"
             :class="{ copiato: linkCopiato }"
-            title="Condividi link della lavagna"
+            :title="t('board.condividiLavagna')"
             @click="copiaLinkStanza"
           >
             <svg v-if="!linkCopiato" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -1096,18 +1119,18 @@ onUnmounted(() => {
             <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
-            <span class="etichetta-btn">{{ linkCopiato ? 'Copiato!' : 'Invita' }}</span>
+            <span class="etichetta-btn">{{ linkCopiato ? t('board.copiato') : t('board.invita') }}</span>
           </button>
 
           <!-- Undo & Redo (Desktop) -->
           <div class="gruppo-undo-redo nascondi-mobile">
-            <button type="button" class="btn-icona-top" :disabled="!storicoUndo.length" title="Annulla (Ctrl+Z)" @click="undo">
+            <button type="button" class="btn-icona-top" :disabled="!storicoUndo.length" :title="t('board.annulla') + ' (Ctrl+Z)'" @click="undo">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                 <path d="M3 7v6h6"></path>
                 <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
               </svg>
             </button>
-            <button type="button" class="btn-icona-top" :disabled="!storicoRedo.length" title="Ripristina (Ctrl+Y)" @click="redo">
+            <button type="button" class="btn-icona-top" :disabled="!storicoRedo.length" :title="t('board.ripristina') + ' (Ctrl+Y)'" @click="redo">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                 <path d="M21 7v6h-6"></path>
                 <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
@@ -1117,17 +1140,17 @@ onUnmounted(() => {
 
           <!-- Esporta (Desktop) -->
           <div class="dropdown-esporta-wrapper nascondi-mobile">
-            <button type="button" class="btn-topbar-azione" title="Esporta lavagna">
+            <button type="button" class="btn-topbar-azione" :title="t('board.esporta')">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-              <span class="etichetta-btn">Esporta</span>
+              <span class="etichetta-btn">{{ t('board.esporta') }}</span>
             </button>
             <div class="menu-esporta">
-              <button type="button" @click="esportaPNG">Immagine PNG (Hi-Res)</button>
-              <button type="button" @click="esportaSVG">Vettoriale SVG</button>
+              <button type="button" @click="esportaPNG">{{ t('board.esportaPNG') }}</button>
+              <button type="button" @click="esportaSVG">{{ t('board.esportaSVG') }}</button>
             </div>
           </div>
 
@@ -1136,7 +1159,7 @@ onUnmounted(() => {
             type="button"
             class="btn-topbar-azione btn-toggle-stile"
             :class="{ attivo: pannelloPropAperto }"
-            :title="pannelloPropAperto ? 'Nascondi opzioni stile' : 'Mostra opzioni stile e colori'"
+            :title="pannelloPropAperto ? (isItalian ? 'Nascondi opzioni stile' : 'Hide style options') : (isItalian ? 'Mostra opzioni stile e colori' : 'Show style options and colors')"
             @click="togglePannelloProp"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -1146,14 +1169,14 @@ onUnmounted(() => {
               <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle>
               <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path>
             </svg>
-            <span class="etichetta-btn nascondi-mobile">Stile</span>
+            <span class="etichetta-btn nascondi-mobile">{{ t('board.stile') }}</span>
           </button>
 
           <!-- Toggle Tema (Desktop) -->
           <button
             type="button"
             class="btn-icona-top nascondi-mobile"
-            :title="tema === 'dark' ? 'Passa al tema chiaro' : 'Passa al tema scuro'"
+            :title="tema === 'dark' ? (isItalian ? 'Passa al tema chiaro' : 'Switch to light theme') : (isItalian ? 'Passa al tema scuro' : 'Switch to dark theme')"
             @click="toggleTema"
           >
             <svg v-if="tema === 'dark'" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -1169,7 +1192,7 @@ onUnmounted(() => {
           <button
             type="button"
             class="btn-icona-top btn-menu-mobile mostrato-solo-mobile"
-            title="Menu azioni"
+            :title="t('nav.menu')"
             @click="apriMenuAzioni"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -1308,11 +1331,11 @@ onUnmounted(() => {
             type="button"
             class="btn-tool btn-arch-trigger"
             :class="{ attivo: strumentoAttivo === 'arch' }"
-            title="Componenti di Architettura Software"
+            :title="t('board.titoloArch')"
             @click="gestisciClickArch"
           >
             <span>{{ tipiArch[archTipoAttivo].icona }}</span>
-            <span class="nome-arch-compatto">{{ tipiArch[archTipoAttivo].nome }}</span>
+            <span class="nome-arch-compatto">{{ t(tipiArch[archTipoAttivo].nome) }}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
@@ -1320,7 +1343,7 @@ onUnmounted(() => {
 
           <!-- Dropdown Desktop Architettura -->
           <div v-if="menuArchAperto" class="dropdown-arch">
-            <div class="dropdown-header">Seleziona Blocco Architettura</div>
+            <div class="dropdown-header">{{ isItalian ? 'Seleziona Blocco Architettura' : 'Select Architecture Block' }}</div>
             <div class="griglia-arch-opzioni">
               <button
                 v-for="(val, key) in tipiArch"
@@ -1332,8 +1355,8 @@ onUnmounted(() => {
               >
                 <span class="arch-ico">{{ val.icona }}</span>
                 <div class="arch-testi">
-                  <strong>{{ val.nome }}</strong>
-                  <small>{{ val.sub }}</small>
+                  <strong>{{ t(val.nome) }}</strong>
+                  <small>{{ t(val.sub) }}</small>
                 </div>
               </button>
             </div>
@@ -1344,13 +1367,13 @@ onUnmounted(() => {
       <!-- Toolbar Proprietà (Palette Colori & Spessore) -->
       <aside v-show="pannelloPropAperto" class="pannello-proprieta">
         <div class="testata-prop">
-          <span class="titolo-pannello-prop">Opzioni Stile</span>
-          <button type="button" class="btn-chiudi-prop" title="Chiudi pannello stile" @click="pannelloPropAperto = false">
+          <span class="titolo-pannello-prop">{{ t('board.opzioniStile') }}</span>
+          <button type="button" class="btn-chiudi-prop" :title="isItalian ? 'Chiudi pannello stile' : 'Close style panel'" @click="pannelloPropAperto = false">
             ✕
           </button>
         </div>
         <div class="sezione-prop">
-          <span class="label-prop">Colore</span>
+          <span class="label-prop">{{ t('board.colore') }}</span>
           <div class="griglia-colori">
             <button
               v-for="col in paletteColori"
@@ -1365,7 +1388,7 @@ onUnmounted(() => {
         </div>
 
         <div class="sezione-prop">
-          <span class="label-prop">Spessore</span>
+          <span class="label-prop">{{ t('board.spessore') }}</span>
           <div class="gruppo-spessore">
             <button
               type="button"
@@ -1396,14 +1419,14 @@ onUnmounted(() => {
 
         <div class="divisore-prop"></div>
 
-        <button type="button" class="btn-elimina-board" title="Elimina elemento selezionato" :disabled="!elementoSelezionatoId" @click="eliminaSelezionato">
+        <button type="button" class="btn-elimina-board" :title="t('board.eliminaElemento')" :disabled="!elementoSelezionatoId" @click="eliminaSelezionato">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
           </svg>
         </button>
 
-        <button type="button" class="btn-pulisci-tutto" title="Svuota intera lavagna" @click="richiediSvuotaLavagna">
+        <button type="button" class="btn-pulisci-tutto" :title="t('board.svuotaIntera')" @click="richiediSvuotaLavagna">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
             <path d="M3 3l18 18"></path>
             <path d="M18.7 8.3L15.7 5.3a2 2 0 0 0-2.83 0L3.5 14.7a2 2 0 0 0 0 2.83l2.97 2.97a2 2 0 0 0 2.83 0L18.7 11.13a2 2 0 0 0 0-2.83z"></path>
@@ -1776,14 +1799,14 @@ onUnmounted(() => {
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
             </svg>
-            <span>Elimina</span>
+            <span>{{ isItalian ? 'Elimina' : 'Delete' }}</span>
           </button>
 
           <!-- Deseleziona ✕ -->
           <button
             type="button"
             class="btn-deseleziona-rapido"
-            title="Deseleziona"
+            :title="isItalian ? 'Deseleziona' : 'Deselect'"
             @click="elementoSelezionatoId = null"
           >
             ✕
@@ -1791,13 +1814,13 @@ onUnmounted(() => {
         </div>
       </transition>
 
-      <!-- Bottom Sheet Menu Mobile (Esporta, Invita, Tema, Svuota) -->
+      <!-- Bottom Sheet Menu Mobile (Esporta, Invita, Lingua, Tema, Svuota) -->
       <transition name="sheet-slide">
         <div v-if="sheetMenuAperto" class="overlay-sheet" @click.self="chiudiMenuAzioni">
           <div class="foglio-bottom-sheet">
             <div class="maniglia-sheet"></div>
             <div class="testata-sheet">
-              <h3>Menu Lavagna</h3>
+              <h3>{{ t('board.menuLavagna') }}</h3>
               <button type="button" class="btn-chiudi-sheet" @click="chiudiMenuAzioni">✕</button>
             </div>
 
@@ -1805,8 +1828,8 @@ onUnmounted(() => {
               <button type="button" class="voce-sheet" @click="copiaLinkStanza(); chiudiMenuAzioni()">
                 <div class="icona-voce">🔗</div>
                 <div class="testo-voce">
-                  <strong>Condividi Lavagna</strong>
-                  <small>{{ linkCopiato ? 'Link copiato negli appunti!' : 'Copia il link per collaborare' }}</small>
+                  <strong>{{ t('board.condividiLavagna') }}</strong>
+                  <small>{{ linkCopiato ? t('board.linkCopiatoAppunti') : t('board.copiaPerCollaborare') }}</small>
                 </div>
                 <span v-if="linkCopiato" class="badge-voce">✓</span>
               </button>
@@ -1814,24 +1837,32 @@ onUnmounted(() => {
               <button type="button" class="voce-sheet" @click="esportaPNG(); chiudiMenuAzioni()">
                 <div class="icona-voce">🖼️</div>
                 <div class="testo-voce">
-                  <strong>Esporta Immagine PNG</strong>
-                  <small>Risoluzione Retina ad alta qualità</small>
+                  <strong>{{ t('board.esportaPNG') }}</strong>
+                  <small>{{ t('board.esportaPNGDettaglio') }}</small>
                 </div>
               </button>
 
               <button type="button" class="voce-sheet" @click="esportaSVG(); chiudiMenuAzioni()">
                 <div class="icona-voce">📐</div>
                 <div class="testo-voce">
-                  <strong>Esporta Vettoriale SVG</strong>
-                  <small>Compatibile con Figma, Illustrator e browser</small>
+                  <strong>{{ t('board.esportaSVG') }}</strong>
+                  <small>{{ t('board.esportaSVGDettaglio') }}</small>
+                </div>
+              </button>
+
+              <button type="button" class="voce-sheet" @click="toggleLingua">
+                <div class="icona-voce">🌐</div>
+                <div class="testo-voce">
+                  <strong>{{ isItalian ? 'Lingua: Italiano (Passa a EN)' : 'Language: English (Switch to IT)' }}</strong>
+                  <small>{{ isItalian ? 'Passa all\'interfaccia in inglese' : 'Switch interface to Italian' }}</small>
                 </div>
               </button>
 
               <button type="button" class="voce-sheet" @click="toggleTema">
                 <div class="icona-voce">{{ tema === 'dark' ? '☀️' : '🌙' }}</div>
                 <div class="testo-voce">
-                  <strong>Tema {{ tema === 'dark' ? 'Chiaro' : 'Scuro' }}</strong>
-                  <small>Attualmente impostato su tema {{ tema }}</small>
+                  <strong>{{ tema === 'dark' ? (isItalian ? 'Tema Chiaro' : 'Light Theme') : (isItalian ? 'Tema Scuro' : 'Dark Theme') }}</strong>
+                  <small>{{ isItalian ? (tema === 'dark' ? 'Passa alla modalità chiara' : 'Passa alla modalità scura') : (tema === 'dark' ? 'Switch to light mode' : 'Switch to dark mode') }}</small>
                 </div>
               </button>
 
@@ -1840,8 +1871,8 @@ onUnmounted(() => {
               <button type="button" class="voce-sheet pericolo" @click="richiediSvuotaLavagna">
                 <div class="icona-voce">🗑️</div>
                 <div class="testo-voce">
-                  <strong>Svuota Intera Lavagna</strong>
-                  <small>Cancella tutti gli elementi per tutti gli utenti</small>
+                  <strong>{{ t('board.svuotaIntera') }}</strong>
+                  <small>{{ t('board.cancellaTutti') }}</small>
                 </div>
               </button>
             </div>
@@ -1855,10 +1886,10 @@ onUnmounted(() => {
           <div class="foglio-bottom-sheet">
             <div class="maniglia-sheet"></div>
             <div class="testata-sheet">
-              <h3>Componenti Architettura</h3>
+              <h3>{{ t('board.titoloArch') }}</h3>
               <button type="button" class="btn-chiudi-sheet" @click="sheetArchAperto = false">✕</button>
             </div>
-            <p class="desc-sheet">Tocca un blocco e poi tocca la lavagna nel punto in cui vuoi inserirlo:</p>
+            <p class="desc-sheet">{{ t('board.toccaUnBlocco') }}</p>
 
             <div class="griglia-arch-sheet">
               <button
@@ -1871,8 +1902,8 @@ onUnmounted(() => {
               >
                 <span class="icona-arch-card">{{ val.icona }}</span>
                 <div class="info-arch-card">
-                  <strong>{{ val.nome }}</strong>
-                  <span>{{ val.sub }}</span>
+                  <strong>{{ t(val.nome) }}</strong>
+                  <span>{{ t(val.sub) }}</span>
                 </div>
               </button>
             </div>
@@ -1885,14 +1916,14 @@ onUnmounted(() => {
         <div v-if="modalConfermaClear" class="overlay-backdrop" @click.self="modalConfermaClear = false">
           <div class="card-dialog-mobile">
             <div class="icona-dialog-avviso">⚠️</div>
-            <h3>Svuotare la lavagna?</h3>
-            <p>Questa operazione rimuoverà tutti gli elementi dalla lavagna per tutti gli utenti. Potrai ripristinarli con "Annulla" (Undo).</p>
+            <h3>{{ t('board.confermaSvuota') }}</h3>
+            <p>{{ t('board.msgSvuota') }}</p>
             <div class="azioni-dialog-mobile">
               <button type="button" class="btn-annulla-dialog" @click="modalConfermaClear = false">
-                Annulla
+                {{ t('board.annullaBtn') }}
               </button>
               <button type="button" class="btn-conferma-dialog-rosso" @click="confermaSvuotaLavagna">
-                Sì, svuota tutto
+                {{ t('board.siSvuotaTutto') }}
               </button>
             </div>
           </div>
@@ -1903,34 +1934,34 @@ onUnmounted(() => {
       <transition name="fade-bounce">
         <div v-if="archInModifica" class="overlay-backdrop" @click.self="archInModifica = null">
           <div class="card-dialog-mobile">
-            <h3>Modifica Componente</h3>
+            <h3>{{ t('board.modificaComponente') }}</h3>
             <div class="campo-dialog">
-              <label>Nome / Titolo</label>
+              <label>{{ t('board.nomeTitolo') }}</label>
               <input
                 v-model="archInModifica.title"
                 type="text"
                 class="input-dialog"
-                placeholder="Nome componente..."
+                :placeholder="isItalian ? 'Nome componente...' : 'Component name...'"
                 autofocus
                 @keydown.enter="salvaArchInModifica"
               />
             </div>
             <div class="campo-dialog">
-              <label>Sottotitolo / Ruolo</label>
+              <label>{{ t('board.sottotitoloRuolo') }}</label>
               <input
                 v-model="archInModifica.subtitle"
                 type="text"
                 class="input-dialog"
-                placeholder="Es. Cloudflare Worker, DB, API..."
+                :placeholder="isItalian ? 'Es. Cloudflare Worker, DB, API...' : 'E.g. Cloudflare Worker, DB, API...'"
                 @keydown.enter="salvaArchInModifica"
               />
             </div>
             <div class="azioni-dialog-mobile">
               <button type="button" class="btn-annulla-dialog" @click="archInModifica = null">
-                Annulla
+                {{ t('board.annullaBtn') }}
               </button>
               <button type="button" class="btn-salva-dialog" @click="salvaArchInModifica">
-                Salva Modifiche
+                {{ t('board.salvaModifiche') }}
               </button>
             </div>
           </div>
@@ -2191,6 +2222,42 @@ onUnmounted(() => {
 .dot-live.connesso {
   background-color: #10b981;
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+/* Switcher Lingua Topbar */
+.selettore-lingua-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.18rem 0.28rem;
+  border-radius: 8px;
+  border: 1px solid var(--bordo-medio);
+  background: var(--bg-superficie);
+  user-select: none;
+}
+
+.btn-lingua-pill {
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--testo-terziario);
+  padding: 0.18rem 0.38rem;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.btn-lingua-pill:hover {
+  color: var(--testo-primario);
+}
+
+.btn-lingua-pill.attivo {
+  background: var(--accento);
+  color: #ffffff;
+  font-weight: 700;
 }
 
 .btn-topbar-azione {

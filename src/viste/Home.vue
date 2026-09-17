@@ -2,7 +2,9 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Contatore from '../components/Contatore.vue'
+import { useLingua } from '../composables/useLingua'
 
+const { isItalian, t } = useLingua()
 const router = useRouter()
 const idLavagnaInput = ref('')
 const erroreInput = ref('')
@@ -40,7 +42,9 @@ async function creaNuovaLavagna() {
 async function entraInLavagna() {
   const pulito = idLavagnaInput.value.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '')
   if (!pulito || pulito.length < 2) {
-    erroreInput.value = 'Inserisci un nome o ID valido per la lavagna'
+    erroreInput.value = isItalian.value
+      ? 'Inserisci un nome o ID valido per la lavagna'
+      : 'Enter a valid whiteboard name or ID'
     return
   }
   erroreInput.value = ''
@@ -49,17 +53,23 @@ async function entraInLavagna() {
   try {
     const res = await fetch(`${API_BASE}/api/rooms/check?app=board&room=${encodeURIComponent(pulito)}`)
     if (!res.ok) {
-      erroreInput.value = 'Impossibile verificare la lavagna. Riprova.'
+      erroreInput.value = isItalian.value
+        ? 'Impossibile verificare la lavagna. Riprova.'
+        : 'Unable to verify whiteboard. Please retry.'
       return
     }
     const data = await res.json()
     if (!data.exists) {
-      erroreInput.value = 'Lavagna non trovata. Verifica l\'ID o crea una nuova lavagna.'
+      erroreInput.value = isItalian.value
+        ? 'Lavagna non trovata. Verifica l\'ID o crea una nuova lavagna.'
+        : 'Board not found. Check the ID or create a new board.'
       return
     }
     router.push(`/board/${pulito}`)
   } catch (err) {
-    erroreInput.value = 'Errore di connessione al server.'
+    erroreInput.value = isItalian.value
+      ? 'Errore di connessione al server.'
+      : 'Connection error to server.'
   } finally {
     staVerificando.value = false
   }
@@ -73,17 +83,17 @@ async function entraInLavagna() {
       <div class="testata-hero-badge">
         <div class="badge-tag">
           <span class="dot"></span>
-          Multiplayer 60fps • Cloudflare WebSockets
+          {{ t('home.badge') }}
         </div>
         <Contatore />
       </div>
 
       <h1 class="titolo-hero">
-        Disegna architetture software e diagrammi in tempo reale.
+        {{ t('home.titolo') }}
       </h1>
 
       <p class="sottotitolo-hero">
-        Una lavagna infinita collaborativa per progettare sistemi, tracciare flussi, collegare nodi infrastrutturali e fare brainstorming con cursori multiplayer a bassissima latenza.
+        {{ t('home.sottotitolo') }}
       </p>
 
       <!-- Azioni Rapide Lavagna -->
@@ -95,13 +105,13 @@ async function entraInLavagna() {
               <line x1="12" y1="8" x2="12" y2="16"></line>
               <line x1="8" y1="12" x2="16" y2="12"></line>
             </svg>
-            {{ staCreando ? 'Creazione in corso...' : 'Crea Nuova Lavagna Live' }}
+            {{ staCreando ? t('home.creando') : t('home.crea') }}
           </button>
-          <span class="nota-crea">Genera un'area di lavoro infinita condivisibile</span>
+          <span class="nota-crea">{{ t('home.notaCrea') }}</span>
         </div>
 
         <div class="divisore-o">
-          <span>oppure</span>
+          <span>{{ t('home.oppure') }}</span>
         </div>
 
         <form class="blocco-unisciti" @submit.prevent="entraInLavagna">
@@ -109,41 +119,41 @@ async function entraInLavagna() {
             <input
               v-model="idLavagnaInput"
               type="text"
-              placeholder="Nome stanza (es. arch-404)"
+              :placeholder="t('home.placeholderInput')"
               maxlength="32"
               class="input-board"
               :disabled="staVerificando"
             />
             <button type="submit" class="btn-secondario" :disabled="staVerificando">
-              {{ staVerificando ? 'Verifica...' : 'Apri' }}
+              {{ staVerificando ? t('home.verificando') : t('home.apri') }}
             </button>
           </div>
           <span v-if="erroreInput" class="testo-errore">{{ erroreInput }}</span>
-          <span v-else class="nota-crea">Entra in una lavagna già creata con il suo link o ID</span>
+          <span v-else class="nota-crea">{{ t('home.notaApri') }}</span>
         </form>
       </div>
     </section>
 
     <!-- Pilastri / Funzionalità -->
     <section id="caratteristiche" class="sezione-pilastri">
-      <h2 class="titolo-sezione">Funzionalità per Sviluppatori & Team</h2>
+      <h2 class="titolo-sezione">{{ t('home.sezFunzionalita') }}</h2>
       <div class="griglia-pilastri">
         <div class="scheda-pilastro">
           <div class="icona-box">🖱️</div>
-          <h3>Cursori Multiplayer 60 FPS</h3>
-          <p>Visualizza i movimenti dei cursori di tutti i partecipanti in tempo reale con nome, colore personalizzato e interpolazione fluida senza scatti.</p>
+          <h3>{{ t('home.f1Titolo') }}</h3>
+          <p>{{ t('home.f1Desc') }}</p>
         </div>
 
         <div class="scheda-pilastro">
           <div class="icona-box">🏗️</div>
-          <h3>Blocchi Architettura Software</h3>
-          <p>Componenti pronti all'uso: Server, Database, Cloudflare Workers, Queue, Cache e Client. Collegali con frecce connettive dinamiche.</p>
+          <h3>{{ t('home.f2Titolo') }}</h3>
+          <p>{{ t('home.f2Desc') }}</p>
         </div>
 
         <div class="scheda-pilastro">
-          <div class="icona-box">✏️</div>
-          <h3>Forme Vettoriali & Penna Libera</h3>
-          <p>Rettangoli, cerchi, rombi per decisioni logiche, note adesive (post-it) e disegno a mano libera con levigatura automatica del tratto.</p>
+          <div class="icona-box">⚡</div>
+          <h3>{{ t('home.f3Titolo') }}</h3>
+          <p>{{ t('home.f3Desc') }}</p>
         </div>
       </div>
     </section>
@@ -152,9 +162,12 @@ async function entraInLavagna() {
     <section id="architetture" class="sezione-architetture">
       <div class="box-showcase">
         <div class="showcase-info">
-          <h3>Esporta in SVG & PNG ad Alta Risoluzione</h3>
+          <h3>{{ isItalian ? 'Esporta in SVG & PNG ad Alta Risoluzione' : 'High-Resolution SVG & PNG Export' }}</h3>
           <p>
-            Al termine della sessione puoi esportare il diagramma con un solo click in formato vettoriale SVG o immagine PNG trasparente per documentazione GitHub, README o presentazioni tecniche.
+            {{ isItalian
+              ? 'Al termine della sessione puoi esportare il diagramma con un solo click in formato vettoriale SVG o immagine PNG trasparente per documentazione GitHub, README o presentazioni tecniche.'
+              : 'When done, export your architectural diagram in a single click as a crisp vector SVG or high-DPI transparent PNG for GitHub documentation, READMEs, or technical presentations.'
+            }}
           </p>
         </div>
       </div>
