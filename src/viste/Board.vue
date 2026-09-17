@@ -25,10 +25,70 @@ const lastCursorSend = ref(0)
 const linkCopiato = ref(false)
 const boardInesistente = ref(false)
 const verificaInCorso = ref(true)
-const pannelloPropAperto = ref(typeof window !== 'undefined' ? window.innerWidth >= 900 : true)
+const pannelloPropAperto = ref(false) // Su mobile parte chiuso per lasciare spazio alla lavagna, si apre con 🎨 o al tap
+
+// Fogli modali per Mobile
+const sheetMenuAperto = ref(false)
+const sheetArchAperto = ref(false)
+const modalConfermaClear = ref(false)
+const archInModifica = ref(null)
+
+// Gestione Multi-touch (Pinch-to-zoom e Two-finger Pan)
+const activeTouches = new Map()
+let initialPinchDistance = 0
+let initialPinchZoom = 1
+let initialPinchPan = { x: 0, y: 0 }
+let initialPinchMidpoint = { x: 0, y: 0 }
 
 function togglePannelloProp() {
   pannelloPropAperto.value = !pannelloPropAperto.value
+}
+
+function apriMenuAzioni() {
+  sheetMenuAperto.value = true
+}
+
+function chiudiMenuAzioni() {
+  sheetMenuAperto.value = false
+}
+
+function gestisciClickArch() {
+  strumentoAttivo.value = 'arch'
+  if (typeof window !== 'undefined' && window.innerWidth < 900) {
+    sheetArchAperto.value = true
+  } else {
+    menuArchAperto.value = !menuArchAperto.value
+  }
+}
+
+function selezionaBloccoArch(tipo) {
+  archTipoAttivo.value = tipo
+  strumentoAttivo.value = 'arch'
+  sheetArchAperto.value = false
+  menuArchAperto.value = false
+}
+
+function richiediSvuotaLavagna() {
+  sheetMenuAperto.value = false
+  modalConfermaClear.value = true
+}
+
+function confermaSvuotaLavagna() {
+  salvaStatoNelUndo()
+  elementi.value = []
+  inviaMessaggio({ type: 'board-clear' })
+  modalConfermaClear.value = false
+}
+
+function salvaArchInModifica() {
+  if (!archInModifica.value) return
+  const el = elementi.value.find(e => e.id === archInModifica.value.id)
+  if (el) {
+    if (archInModifica.value.title.trim()) el.title = archInModifica.value.title.trim()
+    el.subtitle = archInModifica.value.subtitle.trim()
+    inviaMessaggio({ type: 'elem-update', element: el })
+  }
+  archInModifica.value = null
 }
 
 // Canvas Pan & Zoom
@@ -57,6 +117,27 @@ const staDisegnando = ref(false)
 const staTrascinandoElemento = ref(false)
 const puntoInizioDrag = reactive({ x: 0, y: 0 })
 const posInizialiElemento = reactive({ x: 0, y: 0 })
+
+// Elemento selezionato per barra contestuale
+const elSelezionato = computed(() => {
+  if (!elementoSelezionatoId.value) return null
+  return elementi.value.find(e => e.id === elementoSelezionatoId.value) || null
+})
+
+function applicaColoreElemento(col) {
+  if (!elSelezionato.value) return
+  salvaStatoNelUndo()
+  coloreTratto.value = col
+  if (elSelezionato.value.type === 'arch') {
+    elSelezionato.value.color = col
+    elSelezionato.value.borderColor = col
+  } else if (elSelezionato.value.type === 'sticky') {
+    elSelezionato.value.bg = col
+  } else {
+    elSelezionato.value.stroke = col
+  }
+  inviaMessaggio({ type: 'elem-update', element: elSelezionato.value })
+}
 
 // Editing del testo inline
 const testoInModifica = ref(null) // { id, testo }
@@ -322,6 +403,25 @@ const svgRef = ref(null)
 
 // Gestione Pointer Events sul Canvas
 function onPointerDown(e) {
+  activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+  // Due dita: modalità multi-touch gesture (pinch-zoom e pan simultaneo)
+  if (activeTouches.size === 2) {
+    isPanning.value = false
+    staDisegnando.value = false
+    staTrascinandoElemento.value = false
+    elementoInCreazione.value = null
+
+    const [p1, p2] = Array.from(activeTouches.values())
+    initialPinchDistance = Math.hypot(p2.x - p1.x, p2.y - p1.y)
+    initialPinchZoom = zoom.value
+    initialPinchPan = { x: pan.x, y: pan.y }
+    initialPinchMidpoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+    return
+  }
+
+  if (activeTouches.size > 2) return
+
   // Ignora se si clicca con tasti secondari diversi dal pan
   if (e.button === 1 || spacePremuto.value || strumentoAttivo.value === 'pan') {
     isPanning.value = true
@@ -330,7 +430,7 @@ function onPointerDown(e) {
     return
   }
 
-  if (e.button !== 0) return // Solo tasto sinistro
+  if (e.button !== 0 && e.pointerType === 'mouse') return // Solo tasto sinistro per mouse
 
   const world = schermoVersoMondo(e.clientX, e.clientY)
 
@@ -461,6 +561,29 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
+  if (activeTouches.has(e.pointerId)) {
+    activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  }
+
+  // Multi-touch a due dita: pinch-to-zoom e two-finger pan
+  if (activeTouches.size === 2) {
+    const [p1, p2] = Array.from(activeTouches.values())
+    const currentDist = Math.hypot(p2.x - p1.x, p2.y - p1.y)
+    const currentMidpoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+
+    if (initialPinchDistance > 12) {
+      const scale = currentDist / initialPinchDistance
+      const newZoom = Math.max(0.2, Math.min(3.5, initialPinchZoom * scale))
+
+      zoom.value = newZoom
+      pan.x = initialPinchPan.x + (currentMidpoint.x - initialPinchMidpoint.x)
+      pan.y = initialPinchPan.y + (currentMidpoint.y - initialPinchMidpoint.y)
+    }
+    return
+  }
+
+  if (activeTouches.size > 2) return
+
   if (isPanning.value) {
     pan.x = e.clientX - panStart.x
     pan.y = e.clientY - panStart.y
@@ -517,6 +640,12 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
+  activeTouches.delete(e.pointerId)
+  if (activeTouches.size < 2) {
+    initialPinchDistance = 0
+  }
+  if (activeTouches.size > 0) return
+
   if (isPanning.value) {
     isPanning.value = false
     return
@@ -637,26 +766,24 @@ function eliminaSelezionato() {
 
 // Pulisci lavagna intera
 function pulisciLavagna() {
-  if (!confirm('Vuoi davvero cancellare tutti gli elementi della lavagna?')) return
   salvaStatoNelUndo()
   elementi.value = []
   inviaMessaggio({ type: 'board-clear' })
 }
 
-// Doppio click per modifica testo
+// Doppio click o tap per modifica testo
 function apriModificaTesto(el) {
+  if (!el) return
   if (el.type === 'text' || el.type === 'sticky') {
     testoInModifica.value = {
       id: el.id,
       text: el.text
     }
   } else if (el.type === 'arch') {
-    const nuovoTitolo = prompt('Nome del componente:', el.title)
-    if (nuovoTitolo !== null && nuovoTitolo.trim()) {
-      el.title = nuovoTitolo.trim()
-      const nuovoSub = prompt('Sottotitolo / Ruolo:', el.subtitle)
-      if (nuovoSub !== null) el.subtitle = nuovoSub.trim()
-      inviaMessaggio({ type: 'elem-update', element: el })
+    archInModifica.value = {
+      id: el.id,
+      title: el.title,
+      subtitle: el.subtitle
     }
   }
 }
@@ -907,24 +1034,155 @@ onUnmounted(() => {
             </svg>
           </button>
 
-        <div class="logo-board-badge">
-          <span class="logo-ico">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <circle cx="8.5" cy="8.5" r="1.5"></circle>
-              <polyline points="21 15 16 10 5 21"></polyline>
+          <div class="logo-board-badge nascondi-mobile">
+            <span class="logo-ico">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+            </span>
+            <span class="logo-testo">ep-board</span>
+          </div>
+
+          <!-- Badge Codice Stanza (Clicca per copiare link) -->
+          <button
+            type="button"
+            class="badge-codice-stanza"
+            :title="linkCopiato ? 'Link copiato!' : 'Clicca per copiare il link di invito'"
+            @click="copiaLinkStanza"
+          >
+            <span>#{{ roomId }}</span>
+            <span v-if="linkCopiato" class="badge-feedback-copiato">✓</span>
+          </button>
+        </div>
+
+        <!-- Centro Topbar (Undo/Redo sempre a portata di pollice su Mobile) -->
+        <div class="gruppo-undo-redo centro-topbar-mobile">
+          <button type="button" class="btn-icona-top" :disabled="!storicoUndo.length" title="Annulla (Ctrl+Z)" @click="undo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3 7v6h6"></path>
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
             </svg>
-          </span>
-          <span class="logo-testo">ep-board</span>
+          </button>
+          <button type="button" class="btn-icona-top" :disabled="!storicoRedo.length" title="Ripristina (Ctrl+Y)" @click="redo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M21 7v6h-6"></path>
+              <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
+            </svg>
+          </button>
         </div>
 
-        <div class="titolo-stanza-wrapper">
-          <span class="badge-codice-stanza">{{ roomId }}</span>
-        </div>
-      </div>
+        <!-- Top Bar Destra: Presenza, Desktop Actions, Stile, Menu Mobile -->
+        <div class="topbar-destra">
+          <!-- Badge Partecipanti Online -->
+          <div class="pillola-presenza" :title="`${peers.size + 1} utenti connessi a questa stanza`">
+            <span class="dot-live" :class="{ connesso: wsConnesso }"></span>
+            <span class="testo-presenza">{{ peers.size + 1 }} <span class="nascondi-mobile">online</span></span>
+          </div>
 
-      <!-- Dock Strumenti Centrale Flottante -->
-      <div class="dock-strumenti">
+          <!-- Copia Link Invito (Desktop) -->
+          <button
+            type="button"
+            class="btn-topbar-azione nascondi-mobile"
+            :class="{ copiato: linkCopiato }"
+            title="Condividi link della lavagna"
+            @click="copiaLinkStanza"
+          >
+            <svg v-if="!linkCopiato" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span class="etichetta-btn">{{ linkCopiato ? 'Copiato!' : 'Invita' }}</span>
+          </button>
+
+          <!-- Undo & Redo (Desktop) -->
+          <div class="gruppo-undo-redo nascondi-mobile">
+            <button type="button" class="btn-icona-top" :disabled="!storicoUndo.length" title="Annulla (Ctrl+Z)" @click="undo">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3 7v6h6"></path>
+                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+              </svg>
+            </button>
+            <button type="button" class="btn-icona-top" :disabled="!storicoRedo.length" title="Ripristina (Ctrl+Y)" @click="redo">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M21 7v6h-6"></path>
+                <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Esporta (Desktop) -->
+          <div class="dropdown-esporta-wrapper nascondi-mobile">
+            <button type="button" class="btn-topbar-azione" title="Esporta lavagna">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span class="etichetta-btn">Esporta</span>
+            </button>
+            <div class="menu-esporta">
+              <button type="button" @click="esportaPNG">Immagine PNG (Hi-Res)</button>
+              <button type="button" @click="esportaSVG">Vettoriale SVG</button>
+            </div>
+          </div>
+
+          <!-- Toggle Stile (Palette & Spessore) -->
+          <button
+            type="button"
+            class="btn-topbar-azione btn-toggle-stile"
+            :class="{ attivo: pannelloPropAperto }"
+            :title="pannelloPropAperto ? 'Nascondi opzioni stile' : 'Mostra opzioni stile e colori'"
+            @click="togglePannelloProp"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle>
+              <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle>
+              <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle>
+              <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle>
+              <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path>
+            </svg>
+            <span class="etichetta-btn nascondi-mobile">Stile</span>
+          </button>
+
+          <!-- Toggle Tema (Desktop) -->
+          <button
+            type="button"
+            class="btn-icona-top nascondi-mobile"
+            :title="tema === 'dark' ? 'Passa al tema chiaro' : 'Passa al tema scuro'"
+            @click="toggleTema"
+          >
+            <svg v-if="tema === 'dark'" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2M12 20v2m4.93-15.07 1.41 1.41m-15.41 15.41 1.41 1.41M2 12h2m16 0h2m-4.93 4.93 1.41 1.41m-15.41-15.41 1.41 1.41"></path>
+            </svg>
+            <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+            </svg>
+          </button>
+
+          <!-- Hamburger Menu per Mobile (Esporta, Invita, Tema, Pulisci) -->
+          <button
+            type="button"
+            class="btn-icona-top btn-menu-mobile mostrato-solo-mobile"
+            title="Menu azioni"
+            @click="apriMenuAzioni"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Dock Strumenti Principale (Centrato in alto su Desktop, Flottante in basso su Mobile) -->
+      <nav class="dock-strumenti" role="toolbar" aria-label="Strumenti Lavagna">
         <button
           type="button"
           class="btn-tool"
@@ -1044,22 +1302,23 @@ onUnmounted(() => {
 
         <div class="divisore-dock"></div>
 
-        <!-- Menu Blocchi Architettura -->
+        <!-- Menu Blocchi Architettura (Desktop dropdown / Mobile sheet) -->
         <div class="menu-arch-relativo">
           <button
             type="button"
             class="btn-tool btn-arch-trigger"
             :class="{ attivo: strumentoAttivo === 'arch' }"
             title="Componenti di Architettura Software"
-            @click="menuArchAperto = !menuArchAperto; strumentoAttivo = 'arch'"
+            @click="gestisciClickArch"
           >
             <span>{{ tipiArch[archTipoAttivo].icona }}</span>
-            <span class="nome-arch-compatto">Arch</span>
+            <span class="nome-arch-compatto">{{ tipiArch[archTipoAttivo].nome }}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </button>
 
+          <!-- Dropdown Desktop Architettura -->
           <div v-if="menuArchAperto" class="dropdown-arch">
             <div class="dropdown-header">Seleziona Blocco Architettura</div>
             <div class="griglia-arch-opzioni">
@@ -1069,7 +1328,7 @@ onUnmounted(() => {
                 type="button"
                 class="opzione-arch"
                 :class="{ selezionato: archTipoAttivo === key }"
-                @click="archTipoAttivo = key; menuArchAperto = false; strumentoAttivo = 'arch'"
+                @click="selezionaBloccoArch(key)"
               >
                 <span class="arch-ico">{{ val.icona }}</span>
                 <div class="arch-testi">
@@ -1080,171 +1339,77 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-      </div>
+      </nav>
 
-      <!-- Top Bar Destra: Cursori, Partecipanti, Esporta, Tema -->
-      <div class="topbar-destra">
-        <!-- Badge Partecipanti Online -->
-        <div class="pillola-presenza" :title="`${peers.size + 1} utenti connessi a questa stanza`">
-          <span class="dot-live" :class="{ connesso: wsConnesso }"></span>
-          <span class="testo-presenza">{{ peers.size + 1 }} online</span>
-        </div>
-
-        <!-- Copia Link Invito -->
-        <button
-          type="button"
-          class="btn-topbar-azione"
-          :class="{ copiato: linkCopiato }"
-          title="Condividi link della lavagna"
-          @click="copiaLinkStanza"
-        >
-          <svg v-if="!linkCopiato" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-          </svg>
-          <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polyline points="20 6 9 17 4 12"></polyline>
-          </svg>
-          <span class="etichetta-btn">{{ linkCopiato ? 'Copiato!' : 'Invita' }}</span>
-        </button>
-
-        <!-- Undo & Redo -->
-        <div class="gruppo-undo-redo">
-          <button type="button" class="btn-icona-top" :disabled="!storicoUndo.length" title="Annulla (Ctrl+Z)" @click="undo">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M3 7v6h6"></path>
-              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
-            </svg>
-          </button>
-          <button type="button" class="btn-icona-top" :disabled="!storicoRedo.length" title="Ripristina (Ctrl+Y)" @click="redo">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M21 7v6h-6"></path>
-              <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
-            </svg>
+      <!-- Toolbar Proprietà (Palette Colori & Spessore) -->
+      <aside v-show="pannelloPropAperto" class="pannello-proprieta">
+        <div class="testata-prop">
+          <span class="titolo-pannello-prop">Opzioni Stile</span>
+          <button type="button" class="btn-chiudi-prop" title="Chiudi pannello stile" @click="pannelloPropAperto = false">
+            ✕
           </button>
         </div>
-
-        <!-- Esporta -->
-        <div class="dropdown-esporta-wrapper">
-          <button type="button" class="btn-topbar-azione" title="Esporta lavagna">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            <span class="etichetta-btn">Esporta</span>
-          </button>
-          <div class="menu-esporta">
-            <button type="button" @click="esportaPNG">Immagine PNG (Hi-Res)</button>
-            <button type="button" @click="esportaSVG">Vettoriale SVG</button>
+        <div class="sezione-prop">
+          <span class="label-prop">Colore</span>
+          <div class="griglia-colori">
+            <button
+              v-for="col in paletteColori"
+              :key="col"
+              type="button"
+              class="campione-colore"
+              :style="{ backgroundColor: col }"
+              :class="{ attivo: coloreTratto === col }"
+              @click="coloreTratto = col"
+            ></button>
           </div>
         </div>
 
-        <!-- Toggle Pannello Stile / Proprietà -->
-        <button
-          type="button"
-          class="btn-topbar-azione btn-toggle-stile"
-          :class="{ attivo: pannelloPropAperto }"
-          :title="pannelloPropAperto ? 'Nascondi opzioni stile' : 'Mostra opzioni stile e colori'"
-          @click="togglePannelloProp"
-        >
+        <div class="sezione-prop">
+          <span class="label-prop">Spessore</span>
+          <div class="gruppo-spessore">
+            <button
+              type="button"
+              class="btn-spessore"
+              :class="{ attivo: spessoreTratto === 1.5 }"
+              @click="spessoreTratto = 1.5"
+            >
+              <span class="linea-s" style="height: 1.5px;"></span>
+            </button>
+            <button
+              type="button"
+              class="btn-spessore"
+              :class="{ attivo: spessoreTratto === 2.5 }"
+              @click="spessoreTratto = 2.5"
+            >
+              <span class="linea-s" style="height: 2.5px;"></span>
+            </button>
+            <button
+              type="button"
+              class="btn-spessore"
+              :class="{ attivo: spessoreTratto === 4 }"
+              @click="spessoreTratto = 4"
+            >
+              <span class="linea-s" style="height: 4px;"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="divisore-prop"></div>
+
+        <button type="button" class="btn-elimina-board" title="Elimina elemento selezionato" :disabled="!elementoSelezionatoId" @click="eliminaSelezionato">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle>
-            <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle>
-            <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle>
-            <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle>
-            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path>
-          </svg>
-          <span class="etichetta-btn">Stile</span>
-        </button>
-
-        <!-- Toggle Tema -->
-        <button
-          type="button"
-          class="btn-icona-top"
-          :title="tema === 'dark' ? 'Passa al tema chiaro' : 'Passa al tema scuro'"
-          @click="toggleTema"
-        >
-          <svg v-if="tema === 'dark'" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <circle cx="12" cy="12" r="4"></circle>
-            <path d="M12 2v2M12 20v2m4.93-15.07 1.41 1.41m-15.41 15.41 1.41 1.41M2 12h2m16 0h2m-4.93 4.93 1.41 1.41m-15.41-15.41 1.41 1.41"></path>
-          </svg>
-          <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
           </svg>
         </button>
-      </div>
-    </header>
 
-    <!-- Toolbar Proprietà (Palette Colori & Spessore) -->
-    <aside v-show="pannelloPropAperto" class="pannello-proprieta">
-      <div class="testata-prop">
-        <span class="titolo-pannello-prop">Opzioni Stile</span>
-        <button type="button" class="btn-chiudi-prop" title="Chiudi pannello stile" @click="pannelloPropAperto = false">
-          ✕
+        <button type="button" class="btn-pulisci-tutto" title="Svuota intera lavagna" @click="richiediSvuotaLavagna">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3 3l18 18"></path>
+            <path d="M18.7 8.3L15.7 5.3a2 2 0 0 0-2.83 0L3.5 14.7a2 2 0 0 0 0 2.83l2.97 2.97a2 2 0 0 0 2.83 0L18.7 11.13a2 2 0 0 0 0-2.83z"></path>
+          </svg>
         </button>
-      </div>
-      <div class="sezione-prop">
-        <span class="label-prop">Colore</span>
-        <div class="griglia-colori">
-          <button
-            v-for="col in paletteColori"
-            :key="col"
-            type="button"
-            class="campione-colore"
-            :style="{ backgroundColor: col }"
-            :class="{ attivo: coloreTratto === col }"
-            @click="coloreTratto = col"
-          ></button>
-        </div>
-      </div>
-
-      <div class="sezione-prop">
-        <span class="label-prop">Spessore</span>
-        <div class="gruppo-spessore">
-          <button
-            type="button"
-            class="btn-spessore"
-            :class="{ attivo: spessoreTratto === 1.5 }"
-            @click="spessoreTratto = 1.5"
-          >
-            <span class="linea-s" style="height: 1.5px;"></span>
-          </button>
-          <button
-            type="button"
-            class="btn-spessore"
-            :class="{ attivo: spessoreTratto === 2.5 }"
-            @click="spessoreTratto = 2.5"
-          >
-            <span class="linea-s" style="height: 2.5px;"></span>
-          </button>
-          <button
-            type="button"
-            class="btn-spessore"
-            :class="{ attivo: spessoreTratto === 4 }"
-            @click="spessoreTratto = 4"
-          >
-            <span class="linea-s" style="height: 4px;"></span>
-          </button>
-        </div>
-      </div>
-
-      <div class="divisore-prop"></div>
-
-      <button type="button" class="btn-elimina-board" title="Elimina elemento selezionato" :disabled="!elementoSelezionatoId" @click="eliminaSelezionato">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-      </button>
-
-      <button type="button" class="btn-pulisci-tutto" title="Svuota intera lavagna" @click="pulisciLavagna">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path d="M3 3l18 18"></path>
-          <path d="M18.7 8.3L15.7 5.3a2 2 0 0 0-2.83 0L3.5 14.7a2 2 0 0 0 0 2.83l2.97 2.97a2 2 0 0 0 2.83 0L18.7 11.13a2 2 0 0 0 0-2.83z"></path>
-        </svg>
-      </button>
-    </aside>
+      </aside>
 
     <!-- Canvas SVG Infinito Principale -->
     <div class="area-canvas-wrapper" @wheel="onWheel">
@@ -1562,6 +1727,215 @@ onUnmounted(() => {
         <button type="button" class="btn-zoom" title="Aumenta Zoom" @click="zoomIn">+</button>
       </div>
     </div>
+
+      <!-- Barra Contestuale di Azione per Elemento Selezionato (Mobile & Desktop) -->
+      <transition name="fade-bounce">
+        <div v-if="elSelezionato" class="barra-contestuale-selezione">
+          <div class="tag-tipo-selezionato">
+            <span class="punto-tipo"></span>
+            <span class="nome-tipo">{{ elSelezionato.type }}</span>
+          </div>
+
+          <!-- Mini Palette rapida colori -->
+          <div class="mini-palette-rapida">
+            <button
+              v-for="c in ['#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#f8fafc']"
+              :key="c"
+              type="button"
+              class="dot-colore-rapido"
+              :style="{ backgroundColor: c }"
+              :class="{ attivo: (elSelezionato.stroke === c || elSelezionato.color === c || elSelezionato.bg === c) }"
+              @click="applicaColoreElemento(c)"
+            ></button>
+          </div>
+
+          <div class="divisore-contestuale"></div>
+
+          <!-- Modifica Testo/Arch ✏️ -->
+          <button
+            v-if="elSelezionato.type === 'text' || elSelezionato.type === 'sticky' || elSelezionato.type === 'arch'"
+            type="button"
+            class="btn-azione-rapida"
+            title="Modifica contenuto"
+            @click="apriModificaTesto(elSelezionato)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
+            </svg>
+            <span>Modifica</span>
+          </button>
+
+          <!-- Elimina elemento 🗑️ -->
+          <button
+            type="button"
+            class="btn-azione-rapida btn-elimina-rapido"
+            title="Elimina elemento"
+            @click="eliminaSelezionato"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span>Elimina</span>
+          </button>
+
+          <!-- Deseleziona ✕ -->
+          <button
+            type="button"
+            class="btn-deseleziona-rapido"
+            title="Deseleziona"
+            @click="elementoSelezionatoId = null"
+          >
+            ✕
+          </button>
+        </div>
+      </transition>
+
+      <!-- Bottom Sheet Menu Mobile (Esporta, Invita, Tema, Svuota) -->
+      <transition name="sheet-slide">
+        <div v-if="sheetMenuAperto" class="overlay-sheet" @click.self="chiudiMenuAzioni">
+          <div class="foglio-bottom-sheet">
+            <div class="maniglia-sheet"></div>
+            <div class="testata-sheet">
+              <h3>Menu Lavagna</h3>
+              <button type="button" class="btn-chiudi-sheet" @click="chiudiMenuAzioni">✕</button>
+            </div>
+
+            <div class="lista-voci-sheet">
+              <button type="button" class="voce-sheet" @click="copiaLinkStanza(); chiudiMenuAzioni()">
+                <div class="icona-voce">🔗</div>
+                <div class="testo-voce">
+                  <strong>Condividi Lavagna</strong>
+                  <small>{{ linkCopiato ? 'Link copiato negli appunti!' : 'Copia il link per collaborare' }}</small>
+                </div>
+                <span v-if="linkCopiato" class="badge-voce">✓</span>
+              </button>
+
+              <button type="button" class="voce-sheet" @click="esportaPNG(); chiudiMenuAzioni()">
+                <div class="icona-voce">🖼️</div>
+                <div class="testo-voce">
+                  <strong>Esporta Immagine PNG</strong>
+                  <small>Risoluzione Retina ad alta qualità</small>
+                </div>
+              </button>
+
+              <button type="button" class="voce-sheet" @click="esportaSVG(); chiudiMenuAzioni()">
+                <div class="icona-voce">📐</div>
+                <div class="testo-voce">
+                  <strong>Esporta Vettoriale SVG</strong>
+                  <small>Compatibile con Figma, Illustrator e browser</small>
+                </div>
+              </button>
+
+              <button type="button" class="voce-sheet" @click="toggleTema">
+                <div class="icona-voce">{{ tema === 'dark' ? '☀️' : '🌙' }}</div>
+                <div class="testo-voce">
+                  <strong>Tema {{ tema === 'dark' ? 'Chiaro' : 'Scuro' }}</strong>
+                  <small>Attualmente impostato su tema {{ tema }}</small>
+                </div>
+              </button>
+
+              <div class="separatore-sheet"></div>
+
+              <button type="button" class="voce-sheet pericolo" @click="richiediSvuotaLavagna">
+                <div class="icona-voce">🗑️</div>
+                <div class="testo-voce">
+                  <strong>Svuota Intera Lavagna</strong>
+                  <small>Cancella tutti gli elementi per tutti gli utenti</small>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Bottom Sheet Blocchi Architettura per Mobile -->
+      <transition name="sheet-slide">
+        <div v-if="sheetArchAperto" class="overlay-sheet" @click.self="sheetArchAperto = false">
+          <div class="foglio-bottom-sheet">
+            <div class="maniglia-sheet"></div>
+            <div class="testata-sheet">
+              <h3>Componenti Architettura</h3>
+              <button type="button" class="btn-chiudi-sheet" @click="sheetArchAperto = false">✕</button>
+            </div>
+            <p class="desc-sheet">Tocca un blocco e poi tocca la lavagna nel punto in cui vuoi inserirlo:</p>
+
+            <div class="griglia-arch-sheet">
+              <button
+                v-for="(val, key) in tipiArch"
+                :key="key"
+                type="button"
+                class="card-arch-mobile"
+                :class="{ selezionato: archTipoAttivo === key }"
+                @click="selezionaBloccoArch(key)"
+              >
+                <span class="icona-arch-card">{{ val.icona }}</span>
+                <div class="info-arch-card">
+                  <strong>{{ val.nome }}</strong>
+                  <span>{{ val.sub }}</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Modal Conferma Svuota Lavagna -->
+      <transition name="fade-bounce">
+        <div v-if="modalConfermaClear" class="overlay-backdrop" @click.self="modalConfermaClear = false">
+          <div class="card-dialog-mobile">
+            <div class="icona-dialog-avviso">⚠️</div>
+            <h3>Svuotare la lavagna?</h3>
+            <p>Questa operazione rimuoverà tutti gli elementi dalla lavagna per tutti gli utenti. Potrai ripristinarli con "Annulla" (Undo).</p>
+            <div class="azioni-dialog-mobile">
+              <button type="button" class="btn-annulla-dialog" @click="modalConfermaClear = false">
+                Annulla
+              </button>
+              <button type="button" class="btn-conferma-dialog-rosso" @click="confermaSvuotaLavagna">
+                Sì, svuota tutto
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Dialog Modifica Componente Architettura -->
+      <transition name="fade-bounce">
+        <div v-if="archInModifica" class="overlay-backdrop" @click.self="archInModifica = null">
+          <div class="card-dialog-mobile">
+            <h3>Modifica Componente</h3>
+            <div class="campo-dialog">
+              <label>Nome / Titolo</label>
+              <input
+                v-model="archInModifica.title"
+                type="text"
+                class="input-dialog"
+                placeholder="Nome componente..."
+                autofocus
+                @keydown.enter="salvaArchInModifica"
+              />
+            </div>
+            <div class="campo-dialog">
+              <label>Sottotitolo / Ruolo</label>
+              <input
+                v-model="archInModifica.subtitle"
+                type="text"
+                class="input-dialog"
+                placeholder="Es. Cloudflare Worker, DB, API..."
+                @keydown.enter="salvaArchInModifica"
+              />
+            </div>
+            <div class="azioni-dialog-mobile">
+              <button type="button" class="btn-annulla-dialog" @click="archInModifica = null">
+                Annulla
+              </button>
+              <button type="button" class="btn-salva-dialog" @click="salvaArchInModifica">
+                Salva Modifiche
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
     </template>
   </div>
 </template>
@@ -1571,6 +1945,7 @@ onUnmounted(() => {
   position: relative;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background-color: var(--canvas-bg);
@@ -2348,6 +2723,497 @@ onUnmounted(() => {
   background: var(--accento-hover);
 }
 
+/* Stili Desktop (> 900px) */
+@media (min-width: 901px) {
+  .dock-strumenti {
+    position: absolute;
+    top: 0.6rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 35;
+  }
+
+  .centro-topbar-mobile {
+    display: none !important;
+  }
+
+  .mostrato-solo-mobile {
+    display: none !important;
+  }
+
+  .pannello-proprieta {
+    position: absolute;
+    top: 4.6rem;
+    left: 1rem;
+    z-index: 25;
+    background: var(--bg-superficie);
+    border: 1px solid var(--bordo-medio);
+    border-radius: 12px;
+    box-shadow: var(--ombra-scheda);
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    width: 200px;
+  }
+}
+
+/* Badge feedback link copiato */
+.badge-feedback-copiato {
+  color: #10b981;
+  margin-left: 0.25rem;
+  font-weight: 800;
+}
+
+/* Barra Contestuale di Selezione (Flottante sopra la dock) */
+.barra-contestuale-selezione {
+  position: fixed;
+  bottom: max(4.85rem, calc(env(safe-area-inset-bottom) + 4rem));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 30px;
+  background: var(--bg-superficie);
+  border: 1px solid var(--bordo-medio);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  max-width: calc(100vw - 1.5rem);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tag-tipo-selezionato {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--testo-secondario);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-right: 0.35rem;
+  border-right: 1px solid var(--bordo-medio);
+}
+
+.punto-tipo {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accento);
+}
+
+.mini-palette-rapida {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dot-colore-rapido {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  padding: 0;
+}
+
+.dot-colore-rapido.attivo {
+  border-color: var(--accento);
+  transform: scale(1.18);
+  box-shadow: 0 0 0 1.5px #fff;
+}
+
+.divisore-contestuale {
+  width: 1px;
+  height: 1.2rem;
+  background-color: var(--bordo-medio);
+}
+
+.btn-azione-rapida {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--bordo-medio);
+  background: var(--bg-superficie-elevata);
+  color: var(--testo-primario);
+  white-space: nowrap;
+}
+
+.btn-azione-rapida:hover {
+  border-color: var(--accento-bordo);
+}
+
+.btn-elimina-rapido {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.btn-elimina-rapido:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: #ef4444;
+}
+
+.btn-deseleziona-rapido {
+  background: none;
+  border: none;
+  font-size: 0.95rem;
+  color: var(--testo-secondario);
+  cursor: pointer;
+  padding: 0 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Bottom Sheets (Menu e Arch) */
+.overlay-sheet {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.foglio-bottom-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg-superficie);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  border: 1px solid var(--bordo-medio);
+  border-bottom: none;
+  padding: 0.85rem 1.25rem max(1.5rem, env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.maniglia-sheet {
+  width: 38px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bordo-medio);
+  margin: 0 auto 0.75rem auto;
+}
+
+.testata-sheet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.testata-sheet h3 {
+  font-size: 1.15rem;
+  font-weight: 750;
+  color: var(--testo-primario);
+  margin: 0;
+}
+
+.btn-chiudi-sheet {
+  background: var(--bg-superficie-elevata);
+  border: 1px solid var(--bordo-medio);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--testo-secondario);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.desc-sheet {
+  font-size: 0.85rem;
+  color: var(--testo-secondario);
+  margin: 0 0 0.85rem 0;
+}
+
+.lista-voci-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.voce-sheet {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: var(--bg-superficie-elevata);
+  border: 1px solid var(--bordo-sottile);
+  color: var(--testo-primario);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.voce-sheet:active {
+  transform: scale(0.98);
+  background: var(--bordo-sottile);
+}
+
+.voce-sheet.pericolo {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.icona-voce {
+  font-size: 1.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--bg-superficie);
+  flex-shrink: 0;
+}
+
+.testo-voce {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.testo-voce strong {
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.testo-voce small {
+  font-size: 0.78rem;
+  color: var(--testo-secondario);
+  margin-top: 0.15rem;
+}
+
+.badge-voce {
+  font-weight: 800;
+  color: #10b981;
+  font-size: 1rem;
+}
+
+.separatore-sheet {
+  height: 1px;
+  background: var(--bordo-medio);
+  margin: 0.35rem 0;
+}
+
+.griglia-arch-sheet {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.65rem;
+}
+
+.card-arch-mobile {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border-radius: 12px;
+  background: var(--bg-superficie-elevata);
+  border: 1px solid var(--bordo-medio);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.card-arch-mobile:active,
+.card-arch-mobile.selezionato {
+  border-color: var(--accento);
+  background: rgba(249, 115, 22, 0.12);
+}
+
+.icona-arch-card {
+  font-size: 1.5rem;
+}
+
+.info-arch-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-arch-card strong {
+  font-size: 0.88rem;
+  color: var(--testo-primario);
+}
+
+.info-arch-card span {
+  font-size: 0.72rem;
+  color: var(--testo-secondario);
+}
+
+/* Modali Conferma e Modifica Arch */
+.overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.card-dialog-mobile {
+  background: var(--bg-superficie);
+  border: 1px solid var(--bordo-medio);
+  border-radius: 18px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: center;
+}
+
+.icona-dialog-avviso {
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.card-dialog-mobile h3 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--testo-primario);
+  margin: 0;
+}
+
+.card-dialog-mobile p {
+  font-size: 0.88rem;
+  color: var(--testo-secondario);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.campo-dialog {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 0.35rem;
+}
+
+.campo-dialog label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--testo-secondario);
+}
+
+.input-dialog {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--bordo-medio);
+  background: var(--bg-superficie-elevata);
+  color: var(--testo-primario);
+  font-size: 0.95rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.input-dialog:focus {
+  border-color: var(--accento);
+}
+
+.azioni-dialog-mobile {
+  display: flex;
+  gap: 0.65rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.btn-annulla-dialog {
+  flex: 1;
+  padding: 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--bordo-medio);
+  background: var(--bg-superficie-elevata);
+  color: var(--testo-secondario);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.btn-conferma-dialog-rosso {
+  flex: 1;
+  padding: 0.65rem;
+  border-radius: 8px;
+  border: none;
+  background: #ef4444;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.btn-salva-dialog {
+  flex: 1;
+  padding: 0.65rem;
+  border-radius: 8px;
+  border: none;
+  background: var(--accento);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* Transizioni */
+.sheet-slide-enter-active,
+.sheet-slide-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.sheet-slide-enter-active .foglio-bottom-sheet,
+.sheet-slide-leave-active .foglio-bottom-sheet {
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.sheet-slide-enter-from,
+.sheet-slide-leave-to {
+  opacity: 0;
+}
+
+.sheet-slide-enter-from .foglio-bottom-sheet,
+.sheet-slide-leave-to .foglio-bottom-sheet {
+  transform: translateY(100%);
+}
+
+.fade-bounce-enter-active,
+.fade-bounce-leave-active {
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.fade-bounce-enter-from,
+.fade-bounce-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 12px) scale(0.96);
+}
+
 /* Responsività Whiteboard per schermi medi e piccoli (Tablet e Mobile) */
 @media (max-width: 900px) {
   .topbar-board {
@@ -2356,21 +3222,18 @@ onUnmounted(() => {
     gap: 0.35rem;
   }
 
-  .logo-testo {
-    display: none;
+  .nascondi-mobile {
+    display: none !important;
   }
 
-  .nome-arch-compatto {
-    display: none;
+  .mostrato-solo-mobile {
+    display: flex !important;
   }
 
-  .btn-topbar-azione .etichetta-btn {
-    display: none;
-  }
-
-  .btn-topbar-azione {
-    padding: 0 0.55rem;
-    height: 2rem;
+  .centro-topbar-mobile {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
   }
 
   .btn-torna-home {
@@ -2379,8 +3242,9 @@ onUnmounted(() => {
   }
 
   .badge-codice-stanza {
-    padding: 0.18rem 0.4rem;
-    font-size: 0.72rem;
+    padding: 0.2rem 0.45rem;
+    font-size: 0.74rem;
+    cursor: pointer;
   }
 
   .pillola-presenza {
@@ -2391,10 +3255,15 @@ onUnmounted(() => {
     font-size: 0.72rem;
   }
 
+  .btn-topbar-azione {
+    padding: 0 0.55rem;
+    height: 2rem;
+  }
+
   /* Dock Strumenti Flottante in Basso al Centro per Mobile */
   .dock-strumenti {
     position: fixed;
-    bottom: 0.85rem;
+    bottom: max(0.85rem, env(safe-area-inset-bottom));
     left: 50%;
     transform: translateX(-50%);
     z-index: 40;
@@ -2403,13 +3272,13 @@ onUnmounted(() => {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    padding: 0.3rem 0.45rem;
-    border-radius: 14px;
+    padding: 0.35rem 0.5rem;
+    border-radius: 16px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
     background: var(--bg-superficie);
     border: 1px solid var(--bordo-medio);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
   }
 
   .dock-strumenti::-webkit-scrollbar {
@@ -2418,21 +3287,22 @@ onUnmounted(() => {
 
   .btn-tool {
     flex-shrink: 0;
-    min-width: 2.2rem;
+    min-width: 2.35rem;
+    height: 2.35rem;
   }
 
   /* Pannello Stile Flottante sopra i comandi su Mobile */
   .pannello-proprieta {
     position: fixed;
     top: auto;
-    bottom: 4.6rem;
+    bottom: max(4.85rem, calc(env(safe-area-inset-bottom) + 4rem));
     left: 50%;
     transform: translateX(-50%);
     width: min(340px, calc(100vw - 1.5rem));
     z-index: 45;
     background: var(--bg-superficie);
     border: 1px solid var(--bordo-medio);
-    border-radius: 14px;
+    border-radius: 16px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
     padding: 0.85rem;
     display: flex;
@@ -2443,7 +3313,7 @@ onUnmounted(() => {
   }
 
   .dock-zoom {
-    bottom: 4.6rem;
+    bottom: max(4.85rem, calc(env(safe-area-inset-bottom) + 4rem));
     right: 0.75rem;
     left: auto;
     z-index: 35;
@@ -2456,7 +3326,7 @@ onUnmounted(() => {
   }
 
   .badge-codice-stanza {
-    max-width: 80px;
+    max-width: 85px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2467,18 +3337,18 @@ onUnmounted(() => {
   }
 
   .gruppo-undo-redo .btn-icona-top {
-    width: 1.85rem;
-    height: 1.85rem;
+    width: 1.95rem;
+    height: 1.95rem;
   }
 
   .btn-topbar-azione {
-    padding: 0 0.4rem;
-    height: 1.85rem;
+    padding: 0 0.45rem;
+    height: 1.95rem;
   }
 
   .btn-icona-top {
-    width: 1.85rem;
-    height: 1.85rem;
+    width: 1.95rem;
+    height: 1.95rem;
   }
 }
 </style>
